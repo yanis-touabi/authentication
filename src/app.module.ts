@@ -3,7 +3,6 @@ import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { RedisTestController } from './redis.controller';
-
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
@@ -16,7 +15,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
       isGlobal: true,
     }),
     CacheModule.registerAsync({
-      isGlobal: true, // ✅ Makes it available app-wide
+      isGlobal: true,
       useFactory: async () => ({
         store: redisStore,
         host: process.env.REDIS_HOST,
@@ -27,7 +26,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '1d' },
+      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '1d' },
     }),
     PrismaModule,
     AuthModule,
@@ -36,7 +35,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
   providers: [
     {
       provide: APP_INTERCEPTOR,
-      useClass: CacheInterceptor, // ✅ Enables auto-caching for all routes
+      useClass: CacheInterceptor,
     },
   ],
   controllers: [RedisTestController],

@@ -3,6 +3,7 @@ import {
   Controller,
   Post,
   ValidationPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
@@ -11,13 +12,25 @@ import {
   SignUpDto,
   VerifyCodeDto,
 } from './dto/auth.dto';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { LogoutDto } from './dto/logout.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { Public } from './decorators/public.decorator';
 
 @ApiTags('Auth') // Organizes endpoints in Swagger UI
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Public()
   @Post('sign-up')
   @ApiOperation({ summary: 'Sign Up' })
   @ApiResponse({
@@ -31,6 +44,7 @@ export class AuthController {
     return this.authService.signup(signUpDto);
   }
 
+  @Public()
   @Post('sign-in')
   @ApiOperation({ summary: 'Sign In' })
   @ApiResponse({
@@ -82,5 +96,56 @@ export class AuthController {
     changePasswordData: SignInDto,
   ) {
     return this.authService.changePassword(changePasswordData);
+  }
+
+  @Post('refresh-token')
+  @ApiOperation({ summary: 'Refresh Access Token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Access token refreshed successfully.',
+  })
+  refreshToken(
+    @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
+    refreshTokenDto: RefreshTokenDto,
+  ) {
+    return this.authService.refreshToken(
+      refreshTokenDto.refreshToken,
+    );
+  }
+
+  @Post('logout')
+  @ApiOperation({ summary: 'Logout User' })
+  @ApiResponse({
+    status: 200,
+    description: 'User logged out successfully.',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  logout(
+    @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
+    logoutDto: LogoutDto,
+  ) {
+    return this.authService.logout(logoutDto.refreshToken);
+  }
+
+  @Post('change-password-secure')
+  @ApiOperation({ summary: 'Change Password with Verification' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Password changed successfully with current password verification.',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  changePasswordSecure(
+    @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
+    changePasswordDto: ChangePasswordDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.authService.changePasswordWithVerification(
+      user.id,
+      changePasswordDto.currentPassword,
+      changePasswordDto.newPassword,
+    );
   }
 }

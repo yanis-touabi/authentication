@@ -9,7 +9,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export class SignUpDto {
   // firstName
   @ApiProperty({
-    example: 'Hakim',
+    example: 'Yanis',
     description: 'User first name',
   })
   @IsString({ message: 'firstName must be a string' })
@@ -22,7 +22,7 @@ export class SignUpDto {
   firstName: string;
   // lastName
   @ApiProperty({
-    example: 'Alileche',
+    example: 'Touabi',
     description: 'User last name',
   })
   @IsString({ message: 'lastName must be a string' })
@@ -33,7 +33,7 @@ export class SignUpDto {
   lastName: string;
   // Email
   @ApiProperty({
-    example: 'hakim_alileche@gmail.com',
+    example: 'yanis.touabi@gmail.com',
     description: 'User email',
   })
   @IsString({ message: 'Email must be a string' })
@@ -77,7 +77,7 @@ export class SignInDto {
 export class ResetPasswordDto {
   // Email
   @ApiProperty({
-    example: 'hakim_alileche@gmail.com',
+    example: 'yanis.touabi@gmail.com',
     description: 'User email',
   })
   @IsString({ message: 'Email must be a string' })
@@ -87,7 +87,7 @@ export class ResetPasswordDto {
 }
 export class VerifyCodeDto {
   @ApiProperty({
-    example: 'hakim_alileche@gmail.com',
+    example: 'yanis.touabi@gmail.com',
     description: 'User email',
   })
   @IsString({ message: 'Email must be a string' })
