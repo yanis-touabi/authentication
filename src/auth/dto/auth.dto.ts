@@ -55,7 +55,7 @@ export class SignUpDto {
 export class SignInDto {
   // Email
   @ApiProperty({
-    example: 'hakim_alileche@gmail.com',
+    example: 'yanis.touabi@gmail.com',
     description: 'User email',
   })
   @IsString({ message: 'Email must be a string' })

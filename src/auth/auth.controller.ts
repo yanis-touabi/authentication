@@ -4,6 +4,7 @@ import {
   Post,
   ValidationPipe,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
@@ -58,6 +59,7 @@ export class AuthController {
     return this.authService.signIn(signInDto);
   }
 
+  @Public()
   @Post('reset-password')
   @ApiOperation({ summary: 'Reset Password' })
   @ApiResponse({
@@ -71,6 +73,7 @@ export class AuthController {
     return this.authService.resetPassword(email);
   }
 
+  @Public()
   @Post('verify-code')
   @ApiOperation({ summary: 'Verify Code' })
   @ApiResponse({
@@ -85,6 +88,7 @@ export class AuthController {
     return this.authService.verifyCode(verifyCode);
   }
 
+  @Public()
   @Post('change-password')
   @ApiOperation({ summary: 'Change Password' })
   @ApiResponse({
@@ -119,13 +123,12 @@ export class AuthController {
     status: 200,
     description: 'User logged out successfully.',
   })
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
   logout(
     @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
     logoutDto: LogoutDto,
   ) {
-    return this.authService.logout(logoutDto.refreshToken);
+    return this.authService.logout(logoutDto.refreshToken, 1);
   }
 
   @Post('change-password-secure')
@@ -142,6 +145,7 @@ export class AuthController {
     changePasswordDto: ChangePasswordDto,
     @CurrentUser() user: any,
   ) {
+    console.log('rani hna !!');
     return this.authService.changePasswordWithVerification(
       user.id,
       changePasswordDto.currentPassword,

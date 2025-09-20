@@ -159,7 +159,7 @@ export class AuthService {
 
       // Throw error if password doesn't match
       if (!isMatch) {
-        throw new UnauthorizedException();
+        throw new UnauthorizedException('Invalid credentials');
       }
 
       // Remove password from user object before returning (security measure)
@@ -236,15 +236,57 @@ export class AuthService {
     userId: number,
     refreshToken: string,
   ) {
-    const tokenHash = await bcrypt.hash(refreshToken, 10);
-    const cacheKey = `${CACHE_CONSTANTS.REFRESH_TOKEN_PREFIX}${userId}`;
+    try {
+      const tokenHash = await bcrypt.hash(refreshToken, 10);
+      const cacheKey = `${CACHE_CONSTANTS.REFRESH_TOKEN_PREFIX}${userId}`;
 
-    // Store with TTL matching refresh token expiration (7 days)
-    await this.cacheManager.set(
-      cacheKey,
-      tokenHash,
-      7 * 24 * 60 * 60,
-    );
+      console.log('=== DETAILED REDIS DEBUG ===');
+      console.log('User ID:', userId);
+      console.log('Cache Key:', cacheKey);
+      console.log('Token Hash:', tokenHash);
+      console.log('Cache Key Length:', cacheKey.length);
+
+      // Show Redis configuration being used
+      console.log('Redis Config from ENV:');
+      console.log('- Host:', process.env.REDIS_HOST || 'localhost');
+      console.log('- Port:', process.env.REDIS_PORT || '6379');
+      console.log('- Database: 3 (hardcoded)');
+
+      // Store the token
+      const ttlSeconds = 7 * 24 * 60 * 60; // 7 days
+      console.log('Setting TTL to:', ttlSeconds, 'seconds');
+
+      await this.cacheManager.set(cacheKey, tokenHash, ttlSeconds);
+      console.log('✅ Cache manager SET operation completed');
+
+      // Immediate verification
+      const retrieved = await this.cacheManager.get<string>(cacheKey);
+      console.log(
+        'Immediate GET result:',
+        retrieved ? 'FOUND' : 'NOT FOUND',
+      );
+
+      if (retrieved) {
+        console.log(
+          'Retrieved hash matches:',
+          retrieved === tokenHash,
+        );
+      }
+
+      // Show exactly what Redis CLI command to use
+      console.log('=== REDIS CLI COMMANDS TO TEST ===');
+      console.log(
+        `redis-cli -h ${process.env.REDIS_HOST || 'localhost'} -p ${process.env.REDIS_PORT || '6379'}`,
+      );
+      console.log('SELECT 3');
+      console.log(`GET "${cacheKey}"`);
+      console.log(`TTL "${cacheKey}"`);
+      console.log('KEYS refresh_token:*');
+      console.log('=== END DEBUG ===');
+    } catch (error) {
+      console.error('❌ Error in storeRefreshToken:', error);
+      throw error;
+    }
   }
 
   /**
@@ -356,6 +398,7 @@ export class AuthService {
    * @returns Success message confirming logout
    */
   async logout(refreshToken: string, userId?: number) {
+    console.log('user_id', userId);
     try {
       let userIdToLogout = userId;
 
@@ -659,6 +702,7 @@ export class AuthService {
     newPassword: string,
   ) {
     try {
+      console.log('user id', userId);
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
       });

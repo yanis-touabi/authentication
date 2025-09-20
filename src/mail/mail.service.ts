@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { MailerService } from '@nestjs-modules/mailer';
-import { EmailOptions, EmailTemplateContext } from './interfaces/email-options.interface';
+import {
+  EmailOptions,
+  EmailTemplateContext,
+} from './interfaces/email-options.interface';
 
 @Injectable()
 export class MailService {
@@ -15,7 +18,7 @@ export class MailService {
         template: options.template,
         context: options.context,
       });
-      
+
       console.log(`Email sent successfully to ${options.to}`);
       return true;
     } catch (error) {
@@ -41,10 +44,7 @@ export class MailService {
     });
   }
 
-  async sendWelcomeEmail(
-    to: string,
-    name: string,
-  ): Promise<boolean> {
+  async sendWelcomeEmail(to: string, name: string): Promise<boolean> {
     return this.sendEmail({
       to,
       subject: 'Welcome to Our Platform!',

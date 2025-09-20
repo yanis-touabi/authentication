@@ -61,11 +61,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       },
     });
 
+    console.log('user', user);
+
     // Check if user exists and account is active
     if (!user || !user.isActive) {
+      console.log('rani hna', user);
       throw new UnauthorizedException('User not found or inactive');
     }
 
+    console.log('hello world');
     // The returned user object will be attached to the request as req.user
     return user;
   }

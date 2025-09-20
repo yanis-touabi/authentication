@@ -6,7 +6,7 @@ import { RedisTestController } from './redis.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
-import * as redisStore from 'cache-manager-ioredis';
+import { redisStore } from 'cache-manager-ioredis-yet';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 
 @Module({
@@ -17,10 +17,13 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: async () => ({
-        store: redisStore,
-        host: process.env.REDIS_HOST,
-        port: process.env.REDIS_PORT,
-        ttl: 60,
+        store: await redisStore({
+          host: process.env.REDIS_HOST || '127.0.0.1',
+          port: Number(process.env.REDIS_PORT) || 6379,
+          ttl: 24 * 60 * 60, // Set a reasonable default TTL (24 hours)
+          db: 3,
+          keyPrefix: '',
+        }),
       }),
     }),
     JwtModule.register({
