@@ -5,7 +5,6 @@ import {
   InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
-  BadRequestException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -13,32 +12,14 @@ import {
   ResetPasswordDto,
   SignInDto,
   SignUpDto,
-  VerifyCodeDto,
 } from './dto/auth.dto';
 import { JwtService } from '@nestjs/jwt';
 import { MailService } from 'src/mail/mail.service';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject } from '@nestjs/common';
-import { Cache } from 'cache-manager';
 import {
   JwtPayload,
   TokenResponse,
 } from './interfaces/jwt-payload.interface';
-import {
-  JWT_CONSTANTS,
-  PASSWORD_CONSTANTS,
-  VERIFICATION_CONSTANTS,
-  CACHE_CONSTANTS,
-} from './constants';
-
-/**
- * This service handles all authentication-related operations including:
- * - User registration and login
- * - JWT token generation and management
- * - Password reset and change operations
- * - Email verification
- * - Token blacklisting
- */
+import { JWT_CONSTANTS, PASSWORD_CONSTANTS } from './constants';
 
 @Injectable()
 export class AuthService {
@@ -46,20 +27,8 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private mailService: MailService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
-  /**
-   * User Registration
-   *
-   * Creates a new user account with the provided information.
-   * Steps:
-   * 1. Check if user already exists by email
-   * 2. Hash the password using bcrypt
-   * 3. Create user in database
-   * 4. Generate JWT access token
-   * 5. Return user data and token
-   */
   async signup(signUpDto: SignUpDto) {
     try {
       // Check if user already exists
@@ -126,17 +95,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * User Login
-   *
-   * Authenticates a user and generates JWT tokens.
-   * Steps:
-   * 1. Find user by email
-   * 2. Verify password matches stored hash
-   * 3. Remove password from user object for security
-   * 4. Generate JWT access token
-   * 5. Return user data and token
-   */
   async signIn(signInDto: SignInDto) {
     try {
       // Find user by email address
@@ -189,18 +147,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Token Generation Utility
-   *
-   * Generates both access and refresh tokens for a user.
-   * This is a private helper method used by other authentication methods.
-   *
-   * Access Token: Short-lived token (15 minutes) for API authentication
-   * Refresh Token: Long-lived token (7 days) for obtaining new access tokens
-   *
-   * @param payload JWT payload containing user identity (id, email)
-   * @returns Object containing both tokens and expiration information
-   */
   private async generateTokens(
     payload: JwtPayload,
   ): Promise<TokenResponse> {
@@ -223,91 +169,94 @@ export class AuthService {
     };
   }
 
-  /**
-   * Store Refresh Token
-   *
-   * Stores a hash of the refresh token in cache for validation.
-   * This allows us to validate refresh tokens and revoke them when needed.
-   *
-   * @param userId User ID
-   * @param refreshToken Refresh token to store
-   */
   private async storeRefreshToken(
     userId: number,
     refreshToken: string,
   ) {
     try {
       const tokenHash = await bcrypt.hash(refreshToken, 10);
-      const cacheKey = `${CACHE_CONSTANTS.REFRESH_TOKEN_PREFIX}${userId}`;
 
-      console.log('=== DETAILED REDIS DEBUG ===');
-      console.log('User ID:', userId);
-      console.log('Cache Key:', cacheKey);
-      console.log('Token Hash:', tokenHash);
-      console.log('Cache Key Length:', cacheKey.length);
+      // Calculate expiration date (7 days from now)
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
 
-      // Show Redis configuration being used
-      console.log('Redis Config from ENV:');
-      console.log('- Host:', process.env.REDIS_HOST || 'localhost');
-      console.log('- Port:', process.env.REDIS_PORT || '6379');
-      console.log('- Database: 3 (hardcoded)');
+      // Store the token in database (allow multiple tokens per user)
+      await this.prisma.token.create({
+        data: {
+          userId: userId,
+          refreshToken: tokenHash,
+          expiresAt: expiresAt,
+        },
+      });
 
-      // Store the token
-      const ttlSeconds = 7 * 24 * 60 * 60; // 7 days
-      console.log('Setting TTL to:', ttlSeconds, 'seconds');
+      // Optional: Verify the token was stored
+      const storedToken = await this.prisma.token.findFirst({
+        where: {
+          userId: userId,
+          refreshToken: tokenHash,
+        },
+      });
 
-      await this.cacheManager.set(cacheKey, tokenHash, ttlSeconds);
-      console.log('✅ Cache manager SET operation completed');
-
-      // Immediate verification
-      const retrieved = await this.cacheManager.get<string>(cacheKey);
-      console.log(
-        'Immediate GET result:',
-        retrieved ? 'FOUND' : 'NOT FOUND',
-      );
-
-      if (retrieved) {
-        console.log(
-          'Retrieved hash matches:',
-          retrieved === tokenHash,
-        );
+      if (!storedToken) {
+        throw new Error('Failed to store refresh token in database');
       }
 
-      // Show exactly what Redis CLI command to use
-      console.log('=== REDIS CLI COMMANDS TO TEST ===');
-      console.log(
-        `redis-cli -h ${process.env.REDIS_HOST || 'localhost'} -p ${process.env.REDIS_PORT || '6379'}`,
-      );
-      console.log('SELECT 3');
-      console.log(`GET "${cacheKey}"`);
-      console.log(`TTL "${cacheKey}"`);
-      console.log('KEYS refresh_token:*');
-      console.log('=== END DEBUG ===');
+      return storedToken;
     } catch (error) {
       console.error('❌ Error in storeRefreshToken:', error);
       throw error;
     }
   }
 
-  /**
-   * Refresh Token
-   *
-   * Generates a new access token using a valid refresh token.
-   * This allows users to maintain their session without re-authenticating.
-   *
-   * Steps:
-   * 1. Verify the refresh token is valid and not expired
-   * 2. Check if the refresh token has been blacklisted/revoked
-   * 3. Verify the user still exists and is active
-   * 4. Generate new access and refresh tokens
-   *
-   * Security: Refresh tokens are checked against a blacklist to prevent
-   * token reuse after logout or revocation.
-   *
-   * @param refreshToken Valid refresh token obtained during login
-   * @returns New access and refresh tokens with success message
-   */
-  async refreshToken(refreshToken: string) {
+  // Remove all tokens for a user (for complete logout)
+  private async removeAllUserTokens(userId: number) {
+    return this.prisma.token.deleteMany({
+      where: {
+        userId: userId,
+      },
+    });
+  }
+
+  //! a modifier apres
+  // Remove expired tokens (cleanup function)
+  private async cleanupExpiredTokens() {
+    return this.prisma.token.deleteMany({
+      where: {
+        expiresAt: {
+          lt: new Date(), // Delete expired tokens
+        },
+      },
+    });
+  }
+
+  // Verify a specific refresh token
+  private async verifyRefreshToken(
+    userId: number,
+    refreshToken: string,
+  ) {
+    const tokens = await this.prisma.token.findMany({
+      where: {
+        userId: userId,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+    });
+
+    for (const token of tokens) {
+      const isValid = await bcrypt.compare(
+        refreshToken,
+        token.refreshToken,
+      );
+      if (isValid) {
+        return token; // Return the valid token
+      }
+    }
+
+    return null; // No valid token found
+  }
+
+  async refreshToken(refreshToken: string, deviceId?: string) {
     try {
       // Verify the refresh token signature and expiration
       const payload = await this.jwtService.verifyAsync(
@@ -322,34 +271,6 @@ export class AuthService {
         throw new UnauthorizedException('Invalid token type');
       }
 
-      // Check if refresh token has been blacklisted (revoked)
-      const isBlacklisted = await this.cacheManager.get(
-        `${CACHE_CONSTANTS.BLACKLIST_PREFIX}${refreshToken}`,
-      );
-
-      if (isBlacklisted) {
-        // disconnect the user from the platform
-        throw new UnauthorizedException('Token has been revoked');
-      }
-
-      // Validate refresh token against stored hash
-      const storedTokenHash = await this.cacheManager.get(
-        `${CACHE_CONSTANTS.REFRESH_TOKEN_PREFIX}${payload.id}`,
-      );
-
-      if (!storedTokenHash) {
-        throw new UnauthorizedException('Refresh token not found');
-      }
-
-      const isValidRefreshToken = await bcrypt.compare(
-        refreshToken,
-        storedTokenHash as string,
-      );
-
-      if (!isValidRefreshToken) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
       // Get user from database to ensure they still exist and are active
       const user = await this.prisma.user.findUnique({
         where: { id: payload.id },
@@ -359,14 +280,54 @@ export class AuthService {
         throw new UnauthorizedException('User not found or inactive');
       }
 
+      // Get all active refresh tokens for this user from database
+      const activeTokens = await this.prisma.token.findMany({
+        where: {
+          userId: user.id,
+          expiresAt: {
+            gt: new Date(), // Only non-expired tokens
+          },
+        },
+      });
+
+      // Check if the provided refresh token matches any stored token
+      let isValidRefreshToken = false;
+      let matchingToken = null;
+
+      for (const token of activeTokens) {
+        const isMatch = await bcrypt.compare(
+          refreshToken,
+          token.refreshToken,
+        );
+        if (isMatch) {
+          isValidRefreshToken = true;
+          matchingToken = token;
+          break;
+        }
+      }
+
+      if (!isValidRefreshToken || !matchingToken) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      // Check if the token has been blacklisted (optional - if you still want blacklisting)
+      // const isBlacklisted = await this.prisma.blacklistedToken.findUnique({
+      //   where: { tokenHash: await bcrypt.hash(refreshToken, 10) },
+      // });
+      // if (isBlacklisted) {
+      //   throw new UnauthorizedException('Token has been revoked');
+      // }
+
       // Generate new access and refresh tokens
       const newPayload = { id: user.id, email: user.email };
       const tokens = await this.generateTokens(newPayload);
 
-      // Blacklist the old refresh token
-      await this.blacklistToken(refreshToken);
+      // Remove the old refresh token from database
+      await this.prisma.token.delete({
+        where: { id: matchingToken.id },
+      });
 
-      // Store new refresh token
+      // Store new refresh token (with device info if available)
       await this.storeRefreshToken(user.id, tokens.refreshToken);
 
       return {
@@ -376,51 +337,84 @@ export class AuthService {
       };
     } catch (error) {
       console.error('Error in refreshToken:', error);
+
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
 
-  /**
-   * User Logout
-   *
-   * Securely logs out a user by blacklisting their refresh token.
-   * This prevents the refresh token from being used to obtain new access tokens.
-   *
-   * Steps:
-   * 1. Verify the refresh token to get its expiration time
-   * 2. Calculate remaining time until token expiration
-   * 3. Add token to Redis blacklist with TTL equal to remaining time
-   *
-   * Security: The token is blacklisted only for its remaining validity period
-   * to avoid unnecessary storage of expired tokens.
-   *
-   * @param refreshToken Refresh token to be blacklisted
-   * @returns Success message confirming logout
-   */
   async logout(refreshToken: string, userId?: number) {
-    console.log('user_id', userId);
     try {
       let userIdToLogout = userId;
 
-      //! review this and fix it !!
-      // If userId not provided, extract it from the token
+      // If userId not provided, try to extract it from the token
       if (!userIdToLogout) {
-        const payload = await this.jwtService.verifyAsync(
-          refreshToken,
-          {
-            secret: JWT_CONSTANTS.SECRET,
-          },
-        );
-        userIdToLogout = payload.id;
+        try {
+          const payload = await this.jwtService.verifyAsync(
+            refreshToken,
+            {
+              secret: JWT_CONSTANTS.SECRET,
+            },
+          );
+          userIdToLogout = payload.id;
+        } catch (jwtError) {
+          // If token is invalid but we have no userId, still return success
+          if (!userIdToLogout) {
+            console.warn(
+              'Invalid token and no userId provided, proceeding with logout',
+            );
+            return {
+              status: 200,
+              message: 'Logged out successfully',
+            };
+          }
+        }
       }
 
-      // Blacklist the refresh token
-      await this.blacklistToken(refreshToken);
+      if (userIdToLogout && refreshToken) {
+        // Find and remove the specific refresh token from database
+        const userTokens = await this.prisma.token.findMany({
+          where: {
+            userId: userIdToLogout,
+          },
+        });
 
-      // Remove refresh token from cache
-      await this.cacheManager.del(
-        `${CACHE_CONSTANTS.REFRESH_TOKEN_PREFIX}${userIdToLogout}`,
-      );
+        // Find the specific token to delete
+        for (const token of userTokens) {
+          try {
+            const isValid = await bcrypt.compare(
+              refreshToken,
+              token.refreshToken,
+            );
+            if (isValid) {
+              await this.prisma.token.delete({
+                where: { id: token.id },
+              });
+              console.log(
+                `Removed refresh token for user ${userIdToLogout}`,
+              );
+              break;
+            }
+          } catch (compareError) {
+            console.warn('Error comparing token hash:', compareError);
+            // Continue checking other tokens
+          }
+        }
+
+        // Optional: Blacklist the refresh token
+        // await this.blacklistToken(refreshToken);
+      } else if (userIdToLogout) {
+        // If only userId provided, remove all tokens for the user (full logout)
+        await this.prisma.token.deleteMany({
+          where: {
+            userId: userIdToLogout,
+          },
+        });
+        console.log(`Removed all tokens for user ${userIdToLogout}`);
+      }
 
       return {
         status: 200,
@@ -444,72 +438,27 @@ export class AuthService {
    * @param userId User ID
    * @returns Success message
    */
-  // async logoutFromAllDevices(userId: number) {
-  //   try {
-  //     // Remove all refresh tokens for the user
-  //     await this.cacheManager.del(
-  //       `${CACHE_CONSTANTS.REFRESH_TOKEN_PREFIX}${userId}`,
-  //     );
-
-  //     // You might also want to blacklist all existing tokens for this user
-  //     // This would require storing token IDs or implementing a user-based blacklist
-
-  //     return {
-  //       status: 200,
-  //       message: 'Logged out from all devices successfully',
-  //     };
-  //   } catch (error) {
-  //     console.error('Error in logoutFromAllDevices:', error);
-  //     throw new InternalServerErrorException(
-  //       'Error occurred while logging out from all devices',
-  //     );
-  //   }
-  // }
-
-  /**
-   * Blacklist Token
-   *
-   * Adds a token to the blacklist to prevent its future use.
-   *
-   * @param token Token to blacklist
-   */
-  private async blacklistToken(token: string) {
+  async logoutFromAllDevices(userId: number) {
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: JWT_CONSTANTS.SECRET,
+      // Remove all refresh tokens for the user from database
+      await this.prisma.token.deleteMany({
+        where: {
+          userId: userId,
+        },
       });
 
-      const currentTime = Math.floor(Date.now() / 1000);
-      const timeUntilExpiry = payload.exp - currentTime;
-
-      if (timeUntilExpiry > 0) {
-        await this.cacheManager.set(
-          `${CACHE_CONSTANTS.BLACKLIST_PREFIX}${token}`,
-          'revoked',
-          timeUntilExpiry,
-        );
-      }
+      return {
+        status: 200,
+        message: 'Logged out from all devices successfully',
+      };
     } catch (error) {
-      // Token might be invalid or expired, which is fine
-      console.log('Token already invalid or expired:', error.message);
+      console.error('Error in logoutFromAllDevices:', error);
+      throw new InternalServerErrorException(
+        'Error occurred while logging out from all devices',
+      );
     }
   }
 
-  /**
-   * Password Reset Request
-   *
-   * Initiates the password reset process by:
-   * 1. Finding the user by email
-   * 2. Generating a 6-digit verification code
-   * 3. Storing the code in the database
-   * 4. Sending the code via email
-   *
-   * This is the first step in the password reset flow.
-   * The user must then verify the code before changing their password.
-   *
-   * @param email User's email address for password reset
-   * @returns Success message or error if user not found
-   */
   async resetPassword({ email }: ResetPasswordDto) {
     try {
       // Find user by email address
@@ -557,22 +506,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Verification Code Validation
-   *
-   * Validates a verification code sent to the user's email.
-   * This is the second step in the password reset process.
-   *
-   * Steps:
-   * 1. Find user by email and retrieve stored verification code
-   * 2. Compare provided code with stored code
-   * 3. Clear the verification code after successful validation
-   * 4. Return success message to proceed with password change
-   *
-   * @param email User's email address
-   * @param code 6-digit verification code sent to the user
-   * @returns Success message or validation error
-   */
   async verifyCode({ email, code }: { email: string; code: string }) {
     try {
       // Find user and retrieve only the verification code field
@@ -626,25 +559,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Password Change (Without Current Password Verification)
-   *
-   * Changes a user's password without requiring the current password.
-   * This is typically used after email verification in the password reset flow.
-   *
-   * Steps:
-   * 1. Find user by email
-   * 2. Hash the new password
-   * 3. Update the user's password in the database
-   * 4. Return success message
-   *
-   * Note: This method does NOT verify the current password, making it suitable
-   * for password reset scenarios where the user has already been authenticated
-   * via email verification.
-   *
-   * @param changePasswordData Contains email and new password
-   * @returns Success message or error if user not found
-   */
   async changePassword(changePasswordData: SignInDto) {
     try {
       // Find user by email address

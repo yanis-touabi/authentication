@@ -1,55 +1,60 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { AuthGuard } from '@nestjs/passport';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator'; // adjust path if needed
 
-// Extend Express Request to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: number;
-        email: string;
-      };
-      refreshToken?: string;
-    }
-  }
-}
-
-/**
- * JWT Authentication Guard
- *
- * This guard protects routes by requiring a valid JWT token.
- * It extends the AuthGuard from @nestjs/passport and uses the 'jwt' strategy.
- *
- * Usage:
- * - Apply this guard to controller methods or classes that require authentication
- * - The guard automatically validates JWT tokens using the JwtStrategy
- * - If validation fails, it throws an UnauthorizedException
- * - If validation succeeds, it attaches the user object to the request
- *
- * Example:
- * @UseGuards(JwtAuthGuard)
- * @Get('profile')
- * getProfile(@CurrentUser() user: User) {
- *   return user;
- * }
- */
 @Injectable()
-export class JwtAuthGuard extends AuthGuard('jwt') {
-  constructor(private reflector: Reflector) {
-    super();
-  }
+export class JwtAuthGuard implements CanActivate {
+  constructor(
+    private jwtService: JwtService,
+    private reflector: Reflector,
+  ) {}
 
-  canActivate(context: ExecutionContext) {
-    // 🔑 Check if @Public() is applied
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 🔹 1. Check if route/class is public
     const isPublic = this.reflector.getAllAndOverride<boolean>(
       IS_PUBLIC_KEY,
       [context.getHandler(), context.getClass()],
     );
     if (isPublic) {
-      return true; // ✅ Skip JWT check
+      return true;
     }
-    return super.canActivate(context); // ✅ Enforce JWT otherwise
+
+    // 🔹 2. Extract token
+    const request = context.switchToHttp().getRequest();
+    const token = this.extractTokenFromHeader(request);
+    console.log('Extracted Token:', token);
+    if (!token) {
+      console.log('rani hna');
+      throw new UnauthorizedException('Missing token');
+    }
+
+    try {
+      // 🔹 3. Verify token
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      // Attach payload to request so controllers can access user
+      request['user'] = payload;
+    } catch {
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    return true;
+  }
+
+  private extractTokenFromHeader(
+    request: Request,
+  ): string | undefined {
+    const [type, token] =
+      request.headers.authorization?.split(' ') ?? [];
+    return type === 'Bearer' ? token : undefined;
   }
 }

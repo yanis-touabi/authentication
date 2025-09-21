@@ -123,7 +123,7 @@ export class AuthController {
     status: 200,
     description: 'User logged out successfully.',
   })
-  // @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
   logout(
     @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
     logoutDto: LogoutDto,
@@ -138,14 +138,11 @@ export class AuthController {
     description:
       'Password changed successfully with current password verification.',
   })
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   changePasswordSecure(
     @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
     changePasswordDto: ChangePasswordDto,
     @CurrentUser() user: any,
   ) {
-    console.log('rani hna !!');
     return this.authService.changePasswordWithVerification(
       user.id,
       changePasswordDto.currentPassword,
