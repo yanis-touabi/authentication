@@ -28,23 +28,13 @@ async function bootstrap() {
         bearerFormat: 'JWT',
         in: 'header',
       },
-      'access-token', // Give it a name (important)
-    ) // Enable JWT authentication in Swagger UI (if needed)
+      'BearerAuth', // Use consistent name for security scheme
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
 
-  document.components = document.components || {};
-
   // 🔹 Apply BearerAuth globally to all routes
-  document.components.securitySchemes = {
-    BearerAuth: {
-      type: 'http',
-      scheme: 'bearer',
-      bearerFormat: 'JWT',
-    },
-  };
-
   document.security = [{ BearerAuth: [] }]; // Global security
 
   SwaggerModule.setup('api-docs', app, document);

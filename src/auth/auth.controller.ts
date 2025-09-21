@@ -27,6 +27,7 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 
 @ApiTags('Auth') // Organizes endpoints in Swagger UI
+// @ApiBearerAuth('BearerAuth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -123,7 +124,7 @@ export class AuthController {
     status: 200,
     description: 'User logged out successfully.',
   })
-  @ApiBearerAuth('access-token')
+  // @ApiBearerAuth('BearerAuth')
   logout(
     @Body(new ValidationPipe({ forbidNonWhitelisted: true }))
     logoutDto: LogoutDto,
